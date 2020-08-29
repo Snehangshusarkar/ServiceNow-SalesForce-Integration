@@ -1,0 +1,580 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<unload unload_date="2020-08-29 11:00:58">
+<sys_ui_action action="INSERT_OR_UPDATE">
+<action_name>sfdc_contract_data</action_name>
+<active>true</active>
+<client>false</client>
+<client_script_v2/>
+<comments>Take actions on SFDC contract data table
+</comments>
+<condition>gs.hasRole("admin")&amp;&amp;current.u_status_code!=4&amp;&amp;current.u_status_code!=1&amp;&amp;current.u_status_code!=''</condition>
+<form_action>true</form_action>
+<form_button>true</form_button>
+<form_button_v2>false</form_button_v2>
+<form_context_menu>false</form_context_menu>
+<form_link>false</form_link>
+<form_menu_button_v2>false</form_menu_button_v2>
+<form_style/>
+<hint/>
+<isolate_script>true</isolate_script>
+<list_action>false</list_action>
+<list_banner_button>false</list_banner_button>
+<list_button>false</list_button>
+<list_choice>false</list_choice>
+<list_context_menu>false</list_context_menu>
+<list_link>false</list_link>
+<list_save_with_form_button>false</list_save_with_form_button>
+<list_style/>
+<name>SFDC Data</name>
+<onclick>sfdc_data();</onclick>
+<order>100</order>
+<script><![CDATA[function copyAttachments(sfdc_data_sys_id,drNumber_sys_id){
+	gs.log("***Running attachment block");
+	var sysAttach = new GlideSysAttachment();   
+	if (sfdc_data_sys_id) { 
+		gs.log("***Running attachment block - ***Running attachment block - "+sfdc_data_sys_id);
+		var sysEmailAttachments = sysAttach.getAttachments("u_sfdc_contarct_data", sfdc_data_sys_id); 
+		
+		while (sysEmailAttachments.next()) { 
+
+			//sysEmailAttachments.setValue("table_name", current.getTableName()); 
+			sysEmailAttachments.setValue("table_name", "u_managed_services_sales_order");
+			sysEmailAttachments.setValue("table_sys_id", drNumber_sys_id); 
+			sysEmailAttachments.update(); 
+		} 
+	}
+}
+
+function blockNumber(){
+	
+	
+	var choice = new GlideRecord('sys_choice');
+	//choice.addQuery('name','core_company');
+	//choice.addQuery('element','u_block_number');
+	choice.addEncodedQuery('name=core_company^element=u_block_number^inactive=false');
+	choice.orderByDesc('value');
+	choice.setLimit(1);
+	choice.query();
+	while(choice.next()){
+	
+		return choice.value;
+	
+	}	
+}
+
+
+function calcSLA(skuProd){
+	
+
+	var k = 0;
+	var skuProdnew = '';
+	var regex_1 = /99./gi;
+	var sla = '';
+	for(k = 0;k<skuProd.length;k++){
+		
+		if(skuProd[k].indexOf("99") >= 0 && skuProd[k].indexOf("AEM SITES:MS") >= 0){
+			gs.print("skuProd - "+skuProd[k]);
+			var result, indices, temp;
+			
+				skuProdnew = String(skuProd[k]);
+				gs.print("skuProd sites- "+skuProd[k]);
+				
+				result = regex_1.exec(skuProdnew);
+				indices = result.index;
+				gs.print("sites indice - "+indices);
+				sla = skuProdnew.slice(indices,indices+5);
+				sla = sla.replace('%','');
+				sla = Number(sla);
+				gs.print("sites sla - "+sla);
+				return sla;
+			
+		}
+	}
+}
+
+function calcAuthorSLA(skuProd){
+	
+	var k = 0;
+	var skuProdnew = '';
+	var regex_1 = /99./gi;
+	var author_sla = '';
+	for(k = 0;k<skuProd.length;k++){
+		
+		if(skuProd[k].indexOf("99") >= 0 && skuProd[k].indexOf("AEM ASSETS:MS") >= 0){
+			gs.print("skuProd - "+skuProd[k]);
+			var result, indices, temp;
+			
+				skuProdnew = String(skuProd[k]);
+	
+				result = regex_1.exec(skuProdnew);
+				indices = result.index;
+				author_sla = skuProdnew.slice(indices,indices+5);
+				author_sla = author_sla.replace('%','');
+				author_sla = Number(author_sla);
+				return author_sla;
+			}
+		
+	}
+}
+
+function setDueDate(){
+			
+		var dueDate = new GlideDateTime(gs.nowDateTime());
+		if(dueDate.getDayOfWeek() == 1){
+			dueDate.addDays(7);
+		}
+		else if(dueDate.getDayOfWeek() == 2){
+			dueDate.addDays(6);
+		}
+		else dueDate.addDays(5);
+		
+		return dueDate;
+}
+	
+function findCompany(eccid,product){
+	
+	var result = '';
+	var company = new GlideRecord('core_company');
+	company.addQuery('u_ecc_id',eccid);
+	company.addQuery('u_product',product);
+	company.query();
+	if(company.getRowCount() == 1) result = 'Found';
+	if(company.getRowCount() == 0) result = 'Not Found';
+	if(company.getRowCount() > 1) result = 'Multiple';
+	
+	return result;
+}
+
+
+function getCompany(eccid,product){
+	
+	var company = new GlideRecord('core_company');
+	company.addQuery('u_ecc_id',eccid);
+	company.addQuery('u_product',product);
+	company.query();
+	if(company.getRowCount() == 1 && company.next()){
+		
+		return company.sys_id;
+	}
+}
+
+function findSalesOrder(dr,product){
+	
+	var drNumber = new GlideRecord('u_managed_services_sales_order');
+	drNumber.addQuery('u_dr_number',dr);
+	drNumber.addQuery('u_company.u_product',product);
+	drNumber.query();
+	if(drNumber.getRowCount() == 0){
+		
+		return true;
+	}
+	
+}
+
+function getSalesOrder(dr,product){
+	
+	var drNumber = new GlideRecord('u_managed_services_sales_order');
+	drNumber.addQuery('u_dr_number',dr);
+	drNumber.addQuery('u_company.u_product',product);
+	drNumber.query();
+	if(drNumber.getRowCount() == 1 && drNumber.next()){
+		
+		return drNumber.sys_id;
+	}
+	
+}
+
+function findSalesSKU(sku){
+	
+	var salesSKU = new GlideRecord('u_sales_skus');
+	salesSKU.addQuery('u_adobe_sku',sku);
+	salesSKU.query();			  
+	if(salesSKU.getRowCount() == 0){
+		
+		return true;
+		
+	}
+}
+
+function createFinanceName(name,sysID){
+	
+	var financeName = new GlideRecord('u_ams_finance_names');
+	financeName.initialize();
+	financeName.u_company = sysID;
+	financeName.u_finance_name = name;
+	financeName.insert();
+	gs.sleep(30);
+	
+}
+
+function getFinanceName(name,sysID){
+	
+	var financeName = new GlideRecord('u_ams_finance_names');
+	financeName.addQuery('u_finance_name',name);
+	financeName.addQuery('u_company',sysID);
+	financeName.query();
+	if(financeName.getRowCount() == 0){
+		
+		createFinanceName(name,sysID);
+	}
+}
+
+function getSubProducts(skuProd,subProd){
+	
+	var subProducts = '';
+	
+	if(skuProd.indexOf('AEM SITES:MS') >= 0) 
+			subProducts += 'SITES'+',';
+				
+	if(skuProd.indexOf('AEM ASSETS:MS') >= 0)  
+			subProducts += 'ASSETS'+',';
+			
+	if(skuProd.indexOf('AEM SITES:MS SCREENS') >= 0)  
+			subProducts += 'SCREENS'+',';
+		
+	if(skuProd.indexOf('AEM FORMS:MS') >= 0)
+			subProducts += 'FORMS'+',';
+			
+	if(skuProd.indexOf('AEM:MS COMMERCE') >= 0)
+			subProducts += 'COMMERCE'+',';		
+	
+	return subProducts;
+}
+
+
+
+//var sfdc_data = new GlideRecord('u_sfdc_contarct_data');
+//sfdc_data.addQuery('u_status_code','!=','4');
+//sfdc_data.addQuery('sys_id',current.sys_id);
+//sfdc_data.query();
+//while(sfdc_data.next()){
+	
+	var sfdc_data_sys_id = current.sys_id;
+	var currentTime = new GlideDateTime();
+	var adobeSku = current.u_adobe_sku.split(',');
+	var skuProduct = current.u_sku_product.split(',');
+	var skuQty = current.u_qty.split(',');
+	//var skuCurrency = current.u_currency.split(',');
+	var skuCurrency = 'USD';
+	var skuReportableAmount = current.u_reportable_amount.split(',');
+	var skuStartTime = current.u_sku_start_date.split(',');
+	var skuEndTime = current.u_sku_end_date.split(',');
+	var skuProd = current.u_sku_product.toUpperCase().split(',');
+	var comp_sys_id = '';
+	var i = '';
+	var prod = '';
+	var cost = '';
+	
+	//gs.print("ecc ID - "+current.u_ecc_id+" - product - "+current.u_product);
+	var result = findCompany(current.u_ecc_id,current.u_product);
+	//gs.debug("Company result: "+result);
+	gs.log("***SFDC Integration*** - "+currentTime+" - Company Search Result - "+result,"SFDC_Integration");
+	
+	
+	
+	if(result == 'Found' || result == 'Not Found'){
+			
+		var comp = new GlideRecord('core_company');
+		
+		//update the existing record
+		var sysID = '';
+		if(result == 'Found'){
+			
+			sysID = getCompany(current.u_ecc_id,current.u_product);
+			comp.addQuery('sys_id',sysID);
+			comp.query();
+			if(comp.next()){
+				
+				comp.u_customer_contact = current.u_customer_contact;
+				
+				//company sub-product update
+				var subProd = '';
+				var skuprodNames = current.u_sku_product.toUpperCase();
+				subProd = getSubProducts(skuprodNames, current.u_sub_prod);
+	
+				if(subProd.indexOf('SITES') >= 0)
+					comp.u_aem_sites = 'true';
+			
+				if(subProd.indexOf('ASSETS') >= 0)
+					comp.u_aem_assets = 'true';
+		
+				if(subProd.indexOf('SCREENS') >= 0)  
+					comp.u_aem_screens = 'true';
+		
+				if(subProd.indexOf('COMMERCE') >= 0)  
+					comp.u_commerce = 'true';
+		
+				if(subProd.indexOf('FORMS') >= 0){
+					comp.u_aem_forms = 'true';
+				if(current.u_sku_product.indexOf('JEE') >= 0 && prod == 'AEM')
+					comp.u_jee = 'true';
+				else 
+					comp.u_osgi = 'true';		
+				}  
+				comp.update();
+				gs.log("***SFDC Integration*** - "+currentTime+" - Company Record, "+comp.name+" has found in ServiceNow.\n Updating the sub-product and Customer Contact fields in the company form","SFDC_Integration");
+			}
+			
+		}
+		if(result == 'Not Found'){
+		
+		
+		//Create a new company record
+		
+		comp.initialize();
+		comp.name = current.u_comp_name;
+		comp.u_ecc_id = current.u_ecc_id;
+		
+		//company status update
+		var currentDate = new GlideDate();
+		var contractStartDate = current.u_start_date;
+		var diff = parseInt(gs.dateDiff(currentDate,contractStartDate,true));
+		var timeDiff = Math.round(diff/86400);
+		//if(timeDiff >= 0 && timeDiff <= 30){
+		// taking past dates under consideration
+		if(timeDiff <= 30){
+			comp.u_status = 'Pre-Production';
+		}else if(timeDiff > 30)
+			comp.u_status = 'Deferred Deployment';
+		
+
+		
+		//company sub-product update
+		var subProd = '';
+		var skuprodNames = current.u_sku_product.toUpperCase();
+		subProd = getSubProducts(skuprodNames, current.u_sub_prod);
+	
+		if(subProd.indexOf('SITES') >= 0)
+			comp.u_aem_sites = 'true';
+			
+		if(subProd.indexOf('ASSETS') >= 0)
+			comp.u_aem_assets = 'true';
+		
+		if(subProd.indexOf('SCREENS') >= 0)  
+			comp.u_aem_screens = 'true';
+		
+		if(subProd.indexOf('COMMERCE') >= 0)  
+			comp.u_commerce = 'true';
+		
+		if(subProd.indexOf('FORMS') >= 0){
+			comp.u_aem_forms = 'true';
+			if(current.u_sku_product.indexOf('JEE') >= 0 && prod == 'AEM')
+				comp.u_jee = 'true';
+			
+			else 
+				comp.u_osgi = 'true';		
+		}  
+		
+		//sla
+		
+		if(current.u_product == 'AEM'){
+			
+			prod = 'AEM';
+			comp.u_product = 'AEM';
+			if(current.u_sku_product.indexOf("99") >= 0){
+	
+				var sla = calcSLA(skuProd);
+				comp.u_sla = sla;
+				var author_sla = calcAuthorSLA(skuProd);
+				comp.u_author_sla = author_sla;
+				gs.print("AEM Block is running");
+			}
+		}
+		
+		if(current.u_product == 'BASIC'){
+			
+			prod = 'AEM Basic';
+			comp.u_sla = 99.5;
+			comp.u_author_sla = 99.5;
+			gs.print("BASIC Block is running");
+			comp.u_product = 'AEM Basic';
+			comp.u_customer_success_engineer = '80c7831e4f0b5a002dd42ae6f110c748';
+			if(current.u_sku_product.indexOf("HR") >= 0){
+				comp.u_aem_basic_option = 'High Redundancy';
+			}
+		}
+		
+		// Map Industry field
+		
+		if(current.u_industry == 'Energy, Mining, Oil & Gas') comp.u_industry = 'Energy';
+		if(current.u_industry == 'Media & Entertainment') comp.u_industry = 'Media';
+		if(current.u_industry == 'Real Estate, Rental & Leasing') comp.u_industry = 'Real Estate';
+		if(current.u_industry == 'Travel, Leisure & Hospitality') comp.u_industry = 'Travel';
+		if(current.u_industry != '') comp.u_industry = current.u_industry;
+		
+		
+		comp.u_ims_org_id = current.u_imsorgid;
+		comp.u_tenant_id = current.u_tenant_id;
+		comp.u_start_date = current.u_start_date;
+		comp.u_end_date = current.u_end_date;
+		comp.street = current.u_street;
+		comp.city = current.u_city;
+		comp.state = current.u_state;
+		comp.zip = current.u_postal;
+		comp.country = current.u_country;
+		comp.u_customer_contact = current.u_customer_contact;
+		comp.u_account_manager = current.u_acc_manager;
+		comp.u_product_specialist = current.u_prod_specialist; 
+		comp.u_active = 'true';
+		comp.u_block_number = blockNumber();
+		comp_sys_id = comp.insert();
+		gs.sleep(30);
+		
+		//log
+		gs.log("***SFDC Integration*** - "+currentTime+" - Company is not found in ServiceNow.\n A new company record has been created in SNOW.  The sys_id of the new customer record is "+comp_sys_id,"SFDC_Integration");
+		
+		//create finance name
+		createFinanceName(current.u_finance_name,comp_sys_id);
+		sysID = comp_sys_id;
+		
+	}
+		
+		
+		//find and create finance name
+		getFinanceName(current.u_finance_name,sysID);
+		
+		if(findSalesOrder(current.u_dr_number,current.u_product)){
+			
+			//create a new DR
+			//gs.print("NOT Found the DR");
+			var salesOrder = new GlideRecord('u_managed_services_sales_order');
+			salesOrder.initialize();
+			salesOrder.u_company = sysID;
+			salesOrder.u_company.u_product = current.u_product;
+			salesOrder.u_dr_number = current.u_dr_number;
+			salesOrder.u_sales_order_number = current.u_sales_order_number;
+			salesOrder.u_closing_date = current.u_closing_date;
+			salesOrder.u_contract_number = current.u_contract_number;
+			//salesOrder.u_total_contract_value = current.u_total_contract_value.getCurrencyString();
+			//salesOrder.u_total_contract_value.currency = current.u_total_contract_value.currency;
+			cost = current.u_total_contract_value;
+			salesOrder.u_total_contract_value.setDisplayValue(skuCurrency+";"+cost);
+			salesOrder.u_start_date = current.u_start_date;
+			salesOrder.u_end_date = current.u_end_date;
+			var sales_sysid = salesOrder.insert();
+			gs.sleep(30);
+			copyAttachments(sfdc_data_sys_id,sales_sysid);
+			
+			//log
+			gs.log("***SFDC Integration*** - "+currentTime+" - company name - "+current.u_comp_name+" - sys id - "+current.sys_id+" - Sales Order is not found in ServiceNow.\n A new Sales Order record has been created in SNOW/ The sys_id of new Sales Order record is "+sales_sysid,"SFDC_Integration");
+			
+			for(i in adobeSku){
+				
+				if(adobeSku[i] != ''){
+					
+					//create a sales sku record
+					var salesSKU = new GlideRecord('u_sales_skus');
+					salesSKU.initialize();
+					salesSKU.u_adobe_sku = adobeSku[i];
+					salesSKU.u_product = skuProduct[i];
+					salesSKU.u_customer = sysID;
+					salesSKU.u_dr_number = sales_sysid;
+					salesSKU.u_qty = skuQty[i];
+					//salesSKU.u_currency = skuCurrency[i];
+					salesSKU.u_currency = skuCurrency;
+					salesSKU.u_sales_order_number = current.u_sales_order_number;
+					//salesSKU.u_reportable_amount = skuReportableAmount[i];
+					//salesSKU.u_reportable_amount.currency = 'USD';
+					salesSKU.u_start_date = skuStartTime[i];
+					salesSKU.u_end_date = skuEndTime[i];
+					cost = String(skuReportableAmount[i]);
+					salesSKU.u_adobe_contract_number = current.u_contract_number;
+					salesSKU.u_reportable_amount.setDisplayValue(skuCurrency+";"+cost);
+					//salesSKUs.u_reportable_amount.setDisplayValue(skuCurrency[i]+";"+skuReportableAmount[i]);
+					salesSKU.insert();
+					//Debug log
+					gs.log("***SFDC Integration*** - "+currentTime+" - SalesSKU iteration no. - "+i+" - company name - "+current.u_comp_name+" - sys id - "+current.sys_id+" - A new Sales SKU record has been created in SNOW","SFDC_Integration");
+							
+				}	
+			}
+		}
+		else{
+			
+			for(i in adobeSku){
+				
+				if(adobeSku[i] != ''){
+					
+					//create a sales sku record
+					var dr_sysID = getSalesOrder(current.u_dr_number,current.u_product);
+					var salesSKUs = new GlideRecord('u_sales_skus');
+					salesSKUs.initialize();
+					salesSKUs.u_adobe_sku = adobeSku[i];
+					salesSKUs.u_product = skuProduct[i];
+					salesSKUs.u_customer = sysID;
+					if(dr_sysID != '' || dr_sysID != 'undefined'){
+						
+						salesSKUs.u_dr_number = dr_sysID;
+					}
+					salesSKUs.u_qty = skuQty[i];
+					//salesSKUs.u_currency = skuCurrency[i];
+					salesSKUs.u_currency = skuCurrency;
+					salesSKUs.u_sales_order_number = current.u_sales_order_number;
+					//salesSKUs.u_reportable_amount = skuReportableAmount[i];
+					//salesSKUs.u_reportable_amount.currency = 'USD';
+					salesSKUs.u_start_date = skuStartTime[i];
+					salesSKUs.u_end_date = skuEndTime[i];
+					cost = String(skuReportableAmount[i]);
+					salesSKUs.u_adobe_contract_number = current.u_contract_number;
+					salesSKUs.u_reportable_amount.setDisplayValue(skuCurrency+";"+cost);
+					//salesSKUs.u_reportable_amount.setDisplayValue(skuCurrency[i]+";"+'14000.39');
+					salesSKUs.insert();
+					//Debug log
+					gs.log("***SFDC Integration*** - "+currentTime+" - company name - "+current.u_comp_name+" - sys id - "+current.sys_id+" - Sales Order is already existing, but the the Sales SKU is not found in SNOW. A new Sales SKU record has been created in SNOW","SFDC_Integration");
+							
+				}	
+			}
+			
+			
+		}
+	}
+	
+	if(result == 'Multiple'){
+		
+		//follow the exception process - create a problem ticket and assign to Alex
+		var prob = new GlideRecord('problem');
+		prob.initialize();
+		prob.company = getCompany(current.u_ecc_id,current.u_product);
+		prob.priority = '2';
+		prob.opened_by = '6816f79cc0a8016401c5a33be04be441';
+		prob.due_date = setDueDate();
+		prob.state = '1';
+		prob.assigned_to = 'c8330e2c379a1700ca09a6d2b3990ee8';
+		prob.short_description = '[SFDC DATA IMPORT] - Multiple company records found in ServiceNow- "'+current.u_comp_name+'"';
+		prob.u_monitoring_description = 'Please review the new record in "SFDC Contract Data" table, sys_id is '+current.sys_id+" and the company name is "+current.u_comp_name+'. For any integration related issues, please reach out to Snehangshu. Thanks';
+		prob.work_notes = 'ServiceNow is not ale to identify the correct customer for the new SFDC data in u_sfdc_contarct_data table as multiple customers has found with the exact name in ServiceNow. Please check and manually find out the right customer for the new entry.';
+		prob.work_notes_list = 'kalla@adobe.com';
+		var prob_sys_id = prob.insert();
+		//Debug log
+		gs.log("***SFDC Integration*** - "+currentTime+" - A new problem ticket has been created. company name - "+current.u_comp_name+" - sys id - "+current.sys_id+" - Multiple customer records are found in SNOW. problem sys_id - "+prob_sys_id+" and assigned to Alex.","SFDC_Integration");
+		
+}
+current.u_status_code = '4';
+current.update();
+action.setRedirectURL(current);
+//}
+]]></script>
+<show_insert>true</show_insert>
+<show_multiple_update>false</show_multiple_update>
+<show_query>false</show_query>
+<show_update>true</show_update>
+<sys_class_name>sys_ui_action</sys_class_name>
+<sys_created_by>jamli</sys_created_by>
+<sys_created_on>2019-11-07 01:22:35</sys_created_on>
+<sys_customer_update>false</sys_customer_update>
+<sys_domain>global</sys_domain>
+<sys_id>75152c94dbc5c8102ec79a82ca961913</sys_id>
+<sys_mod_count>32</sys_mod_count>
+<sys_name>SFDC Data</sys_name>
+<sys_overrides display_value=""/>
+<sys_package display_value="Global" source="global">global</sys_package>
+<sys_policy/>
+<sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+<sys_scope display_value="Global">global</sys_scope>
+<sys_update_name>sys_ui_action_75152c94dbc5c8102ec79a82ca961913</sys_update_name>
+<sys_updated_by>snsarkar</sys_updated_by>
+<sys_updated_on>2020-02-20 08:09:10</sys_updated_on>
+<table>u_sfdc_contarct_data</table>
+<ui11_compatible>true</ui11_compatible>
+<ui16_compatible>false</ui16_compatible>
+</sys_ui_action>
+</unload>

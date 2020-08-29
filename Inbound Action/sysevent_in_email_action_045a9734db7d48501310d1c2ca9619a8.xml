@@ -1,0 +1,431 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<unload unload_date="2020-08-29 11:04:21">
+<sysevent_in_email_action action="INSERT_OR_UPDATE">
+<action>record_action</action>
+<active>false</active>
+<assignment_operator/>
+<condition_script/>
+<description/>
+<event_name>email.read</event_name>
+<filter_condition table="sys_email">subjectSTARTSWITHTo Be Provisioned^EQ<item goto="false" or="false" field="subject" endquery="false" value="To Be Provisioned" operator="STARTSWITH" newquery="false"/>
+<item goto="false" or="false" field="" endquery="true" value="" operator="=" newquery="false"/>
+</filter_condition>
+<from display_value=""/>
+<name>SFDC_Update imsOrgID</name>
+<order>100</order>
+<reply_email/>
+<required_roles/>
+<script><![CDATA[// Retrieve info from the Provisioning email and update IMSOrgID and Tenant ID of a customer
+
+function copyAttachments(so_sys_id){
+	
+	var sysAttach = new GlideSysAttachment();   
+	var emailSysId = sys_email.getUniqueValue(); 
+	gs.log("Email sys_id is: " + emailSysId, "SFDC_integration");
+	if (emailSysId) { 
+	
+	   var sysEmailAttachments = sysAttach.getAttachments("sys_email", emailSysId); 
+	   gs.log("Number of attachments found: " + sysEmailAttachments.getRowCount(), "SFDC_integration");
+	   //gs.log("Updating attachments to table: " + current.getTableName() + " and sys_id: " + current.getUniqueValue() +  "SFDC_integration");
+
+	   while (sysEmailAttachments.next()) { 
+
+         //sysEmailAttachments.setValue("table_name", current.getTableName()); 
+		 sysEmailAttachments.setValue("table_name", "u_sfdc_contarct_data");
+         sysEmailAttachments.setValue("table_sys_id", so_sys_id); 
+         sysEmailAttachments.update(); 
+	   } 
+	}
+}
+
+function setDueDate(){
+			
+		var dueDate = new GlideDateTime(gs.nowDateTime());
+		if(dueDate.getDayOfWeek() == 1){
+			dueDate.addDays(7);
+		}
+		else if(dueDate.getDayOfWeek() == 2){
+			dueDate.addDays(6);
+		}
+		else dueDate.addDays(5);
+		
+		return dueDate;
+}
+
+function createProblemTicket(){
+	
+	var prob = new GlideRecord('problem');
+	prob.initialize();
+	prob.priority = '2';
+	prob.opened_by = '6816f79cc0a8016401c5a33be04be441';
+	prob.due_date = setDueDate();
+	prob.state = '1';
+	prob.u_required_action = 'ServiceNow';
+	prob.u_topology_url = 'NA';
+	prob.assigned_to = 'c8330e2c379a1700ca09a6d2b3990ee8';
+	prob.short_description = '[PROVISIONING HUB DATA IMPORT] - SFDC failed to send data in ServiceNow';
+	prob.u_monitoring_description = 'Received an email from Provisioning Hub, but didn\'t find the related data/record in "SFDC Contract Data" table. As per the process, cretaed a new SFDC Contract Data record only with the available ph data. Please review this and contact SFDC team to get other data.';
+	prob.work_notes = 'Received an email from Provisioning Hub, but didn\'t find the related data/record in "SFDC Contract Data" table. As per the process, cretaed a new SFDC Contract Data record only with the available ph data. Please review this and contact SFDC team to get other data.';
+	prob.work_notes_list = 'kalla@adobe.com';
+	var prob_sys_id = prob.insert();
+}
+
+function getVal(obj){
+	
+	if (Array.isArray(obj)) {
+        return obj[0];
+        
+    } else {
+
+        var objArr = obj.split(",");
+        return objArr[0];
+    }
+}
+
+function getECCID(body){
+	var ECCIDRegex = /(ECC ID:[\w\W]+?[\n])/g;
+	var ECCIDVal = ECCIDRegex.exec(body);
+	var ecc_id = getVal(ECCIDVal);
+	ecc_id = ecc_id.replace("ECC ID:","");
+	ecc_id = ecc_id.trim();
+	gs.log("***SFDC*** - "+ecc_id);
+	return ecc_id;
+}
+
+function getCustomerContact(body){
+	var CustomerContactRegex = /(Deploy-To Email:[\w\W]+?[\n])/g;
+	var CustomerContactVal = CustomerContactRegex.exec(body);	
+	var customer_contact = getVal(CustomerContactVal);
+	customer_contact = customer_contact.replace("Deploy-To Email:","");
+	customer_contact = customer_contact.trim();
+	gs.log(customer_contact);
+	return customer_contact;
+}
+
+
+function getTenantID(body){
+	var TenantIDRegex = /(Marketing Cloud Tenant:[\w\W]+?[\n])/g;
+	var TenantIDVal = TenantIDRegex.exec(body);	
+	gs.log("TenantIDVal - "+TenantIDVal, "sfdc test");
+	var tenant_id = getVal(TenantIDVal);
+	tenant_id = tenant_id.replace("Marketing Cloud Tenant:","");
+	tenant_id = tenant_id.trim();
+	gs.log(tenant_id);
+	return tenant_id;
+}
+
+function getSONumber(body){
+	var SONumberRegex = /(Sales Order Number:[\w\W]+?[\n])/g;
+	var SONumberVal = SONumberRegex.exec(body);	
+	var so_number = getVal(SONumberVal);
+	so_number = so_number.replace("Sales Order Number:","");
+	so_number = String(so_number.trim());
+	gs.log(so_number);
+	return so_number;
+}
+
+
+function getImsOrgID(body){
+	var ImsOrgIDRegex = /(Marketing Cloud Org ID:[\w\W]+?[\n])/g;
+	var ImsOrgIDVal = ImsOrgIDRegex.exec(body);	
+	var ImsOrgID = getVal(ImsOrgIDVal);
+	ImsOrgID = ImsOrgID.replace("Marketing Cloud Org ID:","");
+	ImsOrgID = String(ImsOrgID.trim());
+	if(ImsOrgID.length >= 24 && ImsOrgID.indexOf("@AdobeOrg") == -1){
+		ImsOrgID = ImsOrgID + "@AdobeOrg";
+	}
+	gs.log("***ImsOrgID*** - "+ImsOrgID);
+	return ImsOrgID;
+}
+
+
+var drNumber = String(email.subject.substring(email.subject.length - 10,email.subject.length).trim());
+var comp_name = String(email.subject.substring(email.subject.indexOf("Provisioned - ")+14,email.subject.length - 11).trim());
+var ph_ticket_link = String(email.body_text.substring(email.body_text.indexOf("Provisioning Hub Ticket Details:")+33,email.body_text.indexOf("Best Regards")).trim());
+
+var body=String(email.body_text);
+var eccID = getECCID(body);
+var customerContact = getCustomerContact(body);
+var tenantID = getTenantID(body);
+var sales_order_number = getSONumber(body);
+var IMS_Org_ID = getImsOrgID(body);
+
+var sfdc_data = new GlideRecord('u_sfdc_contarct_data');
+sfdc_data.addQuery('u_ecc_id',eccID);
+sfdc_data.addQuery('u_status_code','2');
+sfdc_data.query();
+var sfdc_data_sys_id = '';
+gs.log("***SFDC total record found - "+sfdc_data.getRowCount());
+var sfdc_data_sys_id = '';
+
+while(sfdc_data.next()){
+	
+	sfdc_data.u_tenant_id = tenantID;
+	sfdc_data.u_imsorgid = IMS_Org_ID;
+	sfdc_data.u_ph_ticket_link = ph_ticket_link;
+	sfdc_data.u_dr_number_ph = drNumber;
+	sfdc_data.u_so_number_ph = sales_order_number;
+	sfdc_data.u_comp_name_ph = comp_name;
+	sfdc_data.u_customer_contact = customerContact;
+	sfdc_data.u_status_code = '3';
+	//sfdc_data.u_ecc_id = ecc_id;
+	sfdc_data_sys_id = sfdc_data.sys_id;
+	copyAttachments(sfdc_data_sys_id);
+	sfdc_data.update();
+	gs.log("***SFDC*** SFDC record has been found in SFDC COntract Data Table - " + sfdc_data.u_comp_name+ ' - '+sfdc_data.sys_id, "SFDC_integration");
+
+}
+
+if(sfdc_data.getRowCount() == 0){
+	
+	sfdc_data.initialize();
+	sfdc_data.u_comp_name = comp_name;
+	sfdc_data.u_tenant_id = tenantID;
+	sfdc_data.u_imsorgid = IMS_Org_ID;
+	sfdc_data.u_ph_ticket_link = ph_ticket_link;
+	sfdc_data.u_dr_number_ph = drNumber;
+	sfdc_data.u_so_number_ph = sales_order_number;
+	sfdc_data.u_comp_name_ph = comp_name;
+	sfdc_data.u_customer_contact = customerContact;
+	sfdc_data.u_status_code = '5';
+	sfdc_data.u_ecc_id = eccID;
+	var formattedBody = "\n*************************************** Email sent by Provisioning Hub ****************************************\n\n"+body;
+	sfdc_data.u_payload_message = formattedBody;
+	sfdc_data_sys_id = sfdc_data.insert();
+	copyAttachments(sfdc_data_sys_id);
+	createProblemTicket();
+	gs.log("***SFDC*** No record has been found in SFDC COntract Data Table.  Creating a new SFDC record with the available PH data - " + sfdc_data.u_comp_name+ ' - '+sfdc_data_sys_id, "SFDC_integration");
+	
+}
+
+
+
+
+
+
+
+
+
+/*
+if(current.u_status_code == '2' && current.u_ecc_id == eccID){
+	
+	//current.u_ecc_id = eccID;
+	current.u_customer_contact = customerContact;
+	current.u_tenant_id = tenantID;
+	current.u_comp_name_ph = comp_name;
+	current.u_dr_number_ph = drNumber;
+	current.u_so_number_ph = sales_order_number;
+	current.u_ph_ticket_link = ph_ticket_link;
+	current.u_imsorgid = IMS_Org_ID;
+
+	//var formattedBody = "\n*************************************** Email sent by Provisioning Hub ****************************************\n\n"+body;
+	//gs.log("formattedBody - "+formattedBody);
+	//if(current.u_payload_message == '') current.u_payload_message = formattedBody;
+	current.u_status_code = '5';
+	current.update();
+	copyAttachments(sfdc_data_sys_id);
+}
+
+if(current.u_status_code == '2' && current.u_ecc_id != eccID){
+	current.u_ecc_id = eccID;
+	current.u_customer_contact = customerContact;
+	current.u_tenant_id = tenantID;
+	current.u_comp_name_ph = comp_name;
+	current.u_dr_number_ph = drNumber;
+	current.u_so_number_ph = sales_order_number;
+	current.u_ph_ticket_link = ph_ticket_link;
+	current.u_imsorgid = IMS_Org_ID;
+
+	var formattedBody = "\n*************************************** Email sent by Provisioning Hub ****************************************\n\n"+body;
+	//gs.log("formattedBody - "+formattedBody);
+	if(current.u_payload_message == '') current.u_payload_message = formattedBody;
+	current.u_status_code = '5';
+	var sfdc_data_sys_id = current.insert();
+	copyAttachments(sfdc_data_sys_id);
+	//createProblemTicket();
+}
+	
+	
+
+
+
+
+
+/*
+var ecc_id = email.body_text.substring(email.body_text.indexOf("ECC ID:")+8,email.body_text.indexOf("- Dates:")).trim();
+var comp_name = email.subject.substring(email.subject.indexOf("Provisioned - ")+14,email.subject.indexOf(" DR")).trim();
+var drNumber = String(email.subject.substring(email.subject.length - 10,email.subject.length).trim());
+
+var sales_order_number = String(email.body_text.substring(email.body_text.indexOf("Sales Order Number:")+20,email.body_text.indexOf("- ECC ID:")).trim());
+//var dates = email.body_text.substring(email.body_text.indexOf("Dates:")+7,email.body_text.indexOf("- Deploy-To Email:")).trim();
+//var contract_dates = dates.split(' to ');
+//var contract_start_dates = contract_dates[0].trim();
+//var contract_end_dates = contract_dates[1].trim();
+
+var tenant_ID = email.body_text.substring(email.body_text.indexOf("Marketing Cloud Tenant:")+23,email.body_text.indexOf("- Marketing Cloud Org ID:")).trim();
+var IMS_Org_ID = String(email.body_text.substring(email.body_text.indexOf("Marketing Cloud Org ID:")+23,email.body_text.indexOf("Provisioning Hub Ticket")).trim());
+var ph_ticket_link = String(email.body_text.substring(email.body_text.indexOf("Provisioning Hub Ticket Details:")+33,email.body_text.indexOf("Best Regards")).trim());
+var customer_contact = String(email.body_text.substring(email.body_text.indexOf("Deploy-To Email:")+16,email.body_text.indexOf("- GEO")).trim());
+
+var sfdc_data = new GlideRecord('u_sfdc_contarct_data');
+sfdc_data.addQuery('u_ecc_id',ecc_id);
+sfdc_data.addQuery('u_status_code','2');
+sfdc_data.query();
+var sfdc_data_sys_id = '';
+gs.log("***SFDC total record found - "+sfdc_data.getRowCount());
+
+while(sfdc_data.next()){
+	
+	sfdc_data.u_tenant_id = tenant_ID;
+	sfdc_data.u_imsorgid = IMS_Org_ID;
+	sfdc_data_sys_id = sfdc_data.sys_id;
+	sfdc_data.u_ph_ticket_link = ph_ticket_link;
+	sfdc_data.u_dr_number_ph = drNumber;
+	sfdc_data.u_so_number_ph = sales_order_number;
+	sfdc_data.u_comp_name_ph = comp_name;
+	sfdc_data.u_customer_contact = customer_contact;
+	sfdc_data.u_status_code = '3';
+	sfdc_data.u_ecc_id = ecc_id;
+	copyAttachments(sfdc_data_sys_id);
+	sfdc_data.update();
+
+}
+
+if(!sfdc_data.next()){
+	
+	sfdc_data.initialize();
+	sfdc_data.u_tenant_id = tenant_ID;
+	sfdc_data.u_imsorgid = IMS_Org_ID;
+	sfdc_data.u_ph_ticket_link = ph_ticket_link;
+	sfdc_data.u_dr_number_ph = drNumber;
+	sfdc_data.u_so_number_ph = sales_order_number;
+	sfdc_data.u_comp_name_ph = comp_name;
+	sfdc_data.u_customer_contact = customer_contact;
+	sfdc_data.u_status_code = '5';
+	sfdc_data.u_ecc_id = ecc_id;
+	sfdc_data_sys_id = sfdc_data.insert();
+	copyAttachments(sfdc_data_sys_id);
+	createProblemTicket();
+	
+}
+
+
+/*
+if(sfdc_data.next() && sfdc_data.getRowCount() > 1 ){
+	
+	if(sfdc_data.u_dr_number == drNumber){
+		sfdc_data.u_tenant_id = tenant_ID;
+		sfdc_data.u_imsorgid = IMS_Org_ID;
+		sfdc_data_sys_id = sfdc_data.sys_id;
+		sfdc_data.u_ph_ticket_link = ph_ticket_link;
+		sfdc_data.u_dr_number_ph = drNumber;
+		sfdc_data.u_so_number_ph = sales_order_number;
+		sfdc_data.u_comp_name_ph = comp_name;
+		sfdc_data.u_customer_contact = customer_contact;
+		sfdc_data.u_status_code = '3';
+		sfdc_data.u_ecc_id = ecc_id;
+		copyAttachments(sfdc_data_sys_id);
+		sfdc_data.update();
+	}
+}
+
+*/
+
+
+
+/*
+
+var comp = new GlideRecord('core_company');
+comp.addQuery('name',comp_name);
+comp.addQuery('u_ecc_id',ecc_id);
+comp.query();
+gs.log("comp number: " + comp.getRowCount(), "SFDC_integration");
+var comp_sys_id = '';
+if(comp.next() && comp.getRowCount() == 1){
+	
+	gs.log("Inside comp loop: ims - "+ comp.u_ims_org_id, "SFDC_integration");
+	comp_sys_id = comp.sys_id;
+	if(comp.u_ims_org_id == ''){
+		comp.u_ims_org_id = IMS_Org_ID;
+	}
+	
+	if(comp.u_ims_org_id != '' && comp.u_ims_org_id != IMS_Org_ID){
+			
+			//createProblemTicket();
+		gs.log("comp ims org id not matched ", "SFDC_integration");
+		
+	}
+	if(comp.u_tenant_id == ''){
+		comp.u_tenant_id = tenant_ID;
+	}
+	comp.update();
+	
+}
+
+var sales_order = new GlideRecord('u_managed_services_sales_order');
+sales_order.addQuery('u_dr_number', drNumber);
+sales_order.query();
+var so_sys_id = '';
+gs.log("Sales Order number " +sales_order.getRowCount(), "SFDC_integration");
+if(!sales_order.next()){
+	gs.log("Inside sales order if loop: " , "SFDC_integration");
+	sales_order.initialize();
+	sales_order.u_company = comp_sys_id;
+	sales_order.u_dr_number = drNumber;
+	sales_order.u_sales_order_number = sales_order_number;
+	sales_order.u_start_date = contract_start_dates;
+	sales_order.u_end_date = contract_end_dates;
+	so_sys_id = sales_order.insert();
+	gs.log("Inside sales order if loop: sys_id "+so_sys_id , "SFDC_integration");
+	//gs.sleep(30);
+	copyAttachments(so_sys_id);
+	
+}
+else{
+	gs.log("Inside sales order else loop: " , "SFDC_integration");
+	so_sys_id = sales_order.sys_id;
+	gs.log("Inside sales order else loop: sys_id "+so_sys_id , "SFDC_integration");
+	copyAttachments(so_sys_id);
+}
+
+
+var sample_sys_id = '57b66e4fdbc04c101310d1c2ca961961';
+var sfdc_data = new GlideRecord('u_sfdc_contarct_data');
+sfdc_data.addQuery('sys_id',sample_sys_id);
+sfdc_data.query();
+if(sfdc_data.next()){
+	sfdc_data.u_prod_specialist = comp_name;
+	sfdc_data.u_acc_manager = drNumber;
+	
+	sfdc_data.u_start_date = contract_start_dates;
+	sfdc_data.u_end_date = contract_end_dates;
+	sfdc_data.u_sub_prod = sales_order_number;
+	sfdc_data.u_industry = tenant_ID;
+	sfdc_data.u_customer_contact = IMS_Org_ID;
+	copyAttachments(sample_sys_id);
+	sfdc_data.update();
+}
+*/
+]]></script>
+<stop_processing>false</stop_processing>
+<sys_class_name>sysevent_in_email_action</sys_class_name>
+<sys_created_by>snsarkar</sys_created_by>
+<sys_created_on>2019-12-16 10:39:11</sys_created_on>
+<sys_customer_update>false</sys_customer_update>
+<sys_domain>global</sys_domain>
+<sys_id>045a9734db7d48501310d1c2ca9619a8</sys_id>
+<sys_mod_count>78</sys_mod_count>
+<sys_name>SFDC_Update imsOrgID</sys_name>
+<sys_overrides display_value=""/>
+<sys_package display_value="Global" source="global">global</sys_package>
+<sys_policy/>
+<sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+<sys_scope display_value="Global">global</sys_scope>
+<sys_update_name>sysevent_in_email_action_045a9734db7d48501310d1c2ca9619a8</sys_update_name>
+<sys_updated_by>snsarkar</sys_updated_by>
+<sys_updated_on>2020-03-09 06:39:09</sys_updated_on>
+<table>u_sfdc_contarct_data</table>
+<template/>
+<type>new</type>
+</sysevent_in_email_action>
+</unload>

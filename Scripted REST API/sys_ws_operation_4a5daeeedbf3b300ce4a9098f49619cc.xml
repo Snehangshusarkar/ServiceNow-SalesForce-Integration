@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<unload unload_date="2020-08-29 10:54:54">
+<sys_ws_operation action="INSERT_OR_UPDATE">
+<active>true</active>
+<consumes>application/json,application/xml,text/xml</consumes>
+<consumes_customized>false</consumes_customized>
+<default_operation_uri/>
+<enforce_acl>cf9d01d3e73003009d6247e603f6a990</enforce_acl>
+<http_method>POST</http_method>
+<name>POST</name>
+<operation_script><![CDATA[(function process(/*RESTAPIRequest*/ request, /*RESTAPIResponse*/ response) {
+
+	// jshint maxerr:100
+	var messages = {};
+	var parser = new global.JSONParser();
+    messages = request.body.dataString;
+	
+	//var resObj = parser.parse(request.body.dataString);
+	var resObj = parser.parse(messages);
+	//gs.print(message);
+	var sfdc = new GlideRecord('u_sfdc_contarct_data');
+	sfdc.initialize();
+	//sfdc.u_id = resObj[0];
+	
+	//sfdc.u_closing_date = resObj['CloseDate'];
+	sfdc.u_comp_name = resObj['Account']['Name'];
+	sfdc.u_street = resObj['Account']['BillingStreet'];
+	sfdc.u_city = resObj['Account']['BillingCity'];
+	sfdc.u_state = resObj['Account']['BillingState'];
+	sfdc.u_postal = resObj['Account']['BillingPostalCode'];
+	sfdc.u_country = resObj['Account']['BillingCountry'];
+	sfdc.u_industry = resObj['Industry__c'];
+	sfdc.u_ecc_id = resObj['End_User_ECC_ID__c'];
+	sfdc.u_closing_date = resObj['CloseDate'];
+	sfdc.u_start_date = resObj['Service_Commence_Date__c'];
+	sfdc.u_end_date = resObj['Service_End_Date__c'];
+	
+	
+	var tcv = resObj['Total_Extended_Price__c'];
+	
+	sfdc.u_customer_contact  = resObj['Customer_Contact_Email__c'];
+	
+	var j = '';
+	//Adobe_Sales_Team__r handle it
+	var acc_manager = '';
+	var prod_specialist = '';
+	
+	try{
+		for (j in resObj['Adobe_Sales_Team__r']['records']){
+		
+			if(resObj['Adobe_Sales_Team__r']['records'][j]['Adobe_Role_Type__c'] == 'ACCOUNT MANAGER'){
+			
+				acc_manager += resObj['Adobe_Sales_Team__r']['records'][j]['Sales_Team_Member__r']['Name']+",";
+	
+			}else if(resObj['Adobe_Sales_Team__r']['records'][j]['Adobe_Role_Type__c'] == 'PRODUCT SPECIALIST'){
+			
+				prod_specialist += resObj['Adobe_Sales_Team__r']['records'][j]['Sales_Team_Member__r']['Name']+",";
+			}
+		}
+		sfdc.u_acc_manager = acc_manager.slice(0, -1);
+		sfdc.u_prod_specialist = prod_specialist.slice(0, -1);
+	}
+	catch(ex){
+		var message = ex.getMessage();
+		gs.debug("***SFDC Integration*** - "+message);
+	}
+	
+	
+	
+	sfdc.u_dr_number = resObj['Deal_Registration_Id__c'];
+	//sfdc.u_total_contract_value = tcv.getCurrencyString();
+	sfdc.u_total_contract_value = tcv;
+	sfdc.u_total_contract_value.currency = 'USD';
+	sfdc.u_sales_order_number = resObj['ECC_Sales_Order_Number__c'];
+	sfdc.u_contract_number = resObj['ECC_ACM_Contract_Number__c'];
+	//multiple line items
+
+	
+	sfdc.u_finance_name = resObj['Organization_Name__c'];
+	var i = '';
+	var skuArray = '';
+	var skuProductArray = '';
+	var skuqtyArray= '';
+	var skuReportableAmount = '';
+	var skuStartDate = '';
+	var skuEndDate = '';
+	var subProduct = '';
+	var skuCurrency = resObj['CurrencyIsoCode'];
+
+	//error handling for OpportunityLineItems
+	try{
+		for (i in resObj['OpportunityLineItems']['records']){
+		
+			//if(resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf('AEM') >= 0 || resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf(':MS') >= 0 || resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf(': MS') >= 0 || resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf('MANAGED') >= 0){
+			
+			if(resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf('AEM') >= 0 && (resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf(':MS') >= 0 || resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf(': MS') >= 0 || resObj['OpportunityLineItems']['records'][i]['Name__c'].indexOf('MANAGED') >= 0)){
+			
+				subProduct += resObj['OpportunityLineItems']['records'][i]['PricebookEntry']['Product2']['Family']+",";
+				skuArray += resObj['OpportunityLineItems']['records'][i]['Adobe_SKU__c']+",";
+				skuProductArray += resObj['OpportunityLineItems']['records'][i]['Name__c']+",";
+				skuqtyArray += resObj['OpportunityLineItems']['records'][i]['Quantity']+",";
+				skuReportableAmount += resObj['OpportunityLineItems']['records'][i]['TotalPrice']+",";
+				skuStartDate += resObj['OpportunityLineItems']['records'][i]['New_Contract_Start_Date__c']+",";
+				skuEndDate += resObj['OpportunityLineItems']['records'][i]['New_Contract_End_Date__c']+",";
+				//skuCurrency += resObj['CurrencyIsoCode']+",";
+			
+			}
+		
+		}
+	
+		subProduct = subProduct.slice(0, -1).toUpperCase();
+		sfdc.u_sub_prod = subProduct;
+		sfdc.u_adobe_sku = skuArray.slice(0, -1);
+		sfdc.u_sku_product = skuProductArray.slice(0, -1);
+		sfdc.u_qty = skuqtyArray.slice(0, -1);
+		//sfdc.u_currency = skuCurrency.slice(0, -1);
+		sfdc.u_currency = skuCurrency;
+		sfdc.u_reportable_amount = skuReportableAmount.slice(0, -1);
+		sfdc.u_sku_start_date = skuStartDate.slice(0, -1);
+		sfdc.u_sku_end_date = skuEndDate.slice(0, -1);
+	}
+	catch(ex){
+		var message = ex.getMessage();
+		gs.debug("***SFDC Integration*** - "+message);
+		
+	}
+		
+		
+	var skuProd = skuProductArray.toUpperCase();
+	if(skuProd.indexOf("MS BASIC") >= 0)
+		sfdc.u_product = 'AEM Basic';
+	else sfdc.u_product = 'AEM';
+	
+	//Sla calculation
+	
+	if(skuProd.indexOf("99") >= 0){
+		skuProd = String(skuProd);
+		var regex_1 = /99./gi, result, indices = [];
+		while ( (result = regex_1.exec(skuProd)) ) {
+			indices.push(result.index);
+		}
+		var k = 0;
+		var sla_array = [];
+		for(k=0;k<indices.length;k++){
+			var ind = indices[k];
+			var temp = skuProd.slice(ind,ind+5);
+			temp = temp.replace('%','');
+			temp = Number(temp);
+			sla_array.push(temp);
+		}	
+		var largest= 0;
+		var l =0;
+
+		for (l=0; l<=largest;l++){
+			if (sla_array[l]>largest) {
+				largest=sla_array[l];
+			}
+		}
+		sfdc.u_author_sla = largest+'%';
+	}
+	
+	
+	
+	
+	//sfdc.u_payload_message = messages;
+	sfdc.u_payload_message = messages;
+	sfdc.insert();
+
+})(request, response);]]></operation_script>
+<operation_uri>/api/adosy/sfdccontractdata</operation_uri>
+<produces>application/json,application/xml,text/xml</produces>
+<produces_customized>false</produces_customized>
+<relative_path>/</relative_path>
+<request_example/>
+<requires_acl_authorization>true</requires_acl_authorization>
+<requires_authentication>true</requires_authentication>
+<requires_snc_internal_role>true</requires_snc_internal_role>
+<short_description/>
+<sys_class_name>sys_ws_operation</sys_class_name>
+<sys_created_by>snsarkar</sys_created_by>
+<sys_created_on>2019-09-13 07:45:34</sys_created_on>
+<sys_customer_update>false</sys_customer_update>
+<sys_id>4a5daeeedbf3b300ce4a9098f49619cc</sys_id>
+<sys_mod_count>5</sys_mod_count>
+<sys_name>POST</sys_name>
+<sys_package display_value="Global" source="global">global</sys_package>
+<sys_policy/>
+<sys_replace_on_upgrade>false</sys_replace_on_upgrade>
+<sys_scope display_value="Global">global</sys_scope>
+<sys_update_name>sys_ws_operation_4a5daeeedbf3b300ce4a9098f49619cc</sys_update_name>
+<sys_updated_by>snsarkar</sys_updated_by>
+<sys_updated_on>2020-04-06 11:49:08</sys_updated_on>
+<web_service_definition display_value="sfdcContractData">d22d2eeedbf3b300ce4a9098f496194d</web_service_definition>
+<web_service_version display_value=""/>
+</sys_ws_operation>
+</unload>
